@@ -62,6 +62,7 @@ jobs:
           echo "Summary generated successfully: $SUMMARY"
           # Store summary in a file
           echo "$SUMMARY" > summary.txt
+          echo "additional logging"
 
       - name: Post Summary as Comment
         run: |
