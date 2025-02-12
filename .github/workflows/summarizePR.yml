@@ -1,0 +1,76 @@
+name: Comment on PR
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  generate_summary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+    
+      - name: Generate AI Summary
+        id: generate_summary
+        env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "Error: OPENAI_API_KEY secret is not set!"
+            exit 1
+          fi
+          echo "Your OpenAI API key is set"
+          
+          RESPONSE=$(curl -s \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $OPENAI_API_KEY" \
+            -d "$(gh pr diff ${{ github.event.pull_request.number }} --color=never | jq -sR '{
+              "model": "gpt-4o-mini",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "Summarize this GitHub PR in a concise, professional manner. Explain how the proposed changes improve the project, or raise concerns if appropriate."
+                },
+                {
+                  "role": "user",
+                  "content": .
+                }
+              ],
+              "temperature": 0.7
+            }')" \
+            https://api.openai.com/v1/chat/completions)
+
+          # Check if the response contains an error
+          if echo "$RESPONSE" | jq -e '.error' > /dev/null; then
+            echo "Error: OpenAI API returned an error"
+            echo "Error Code: $(echo "$RESPONSE" | jq -r '.error.code')"
+            echo "Full Response: $RESPONSE"
+            exit 1
+          fi
+
+          # Extract the summary from the response
+          SUMMARY=$(echo "$RESPONSE" | jq -r '.choices[0].message.content')
+          if [ -z "$SUMMARY" ]; then
+            echo "Error: Failed to get summary from OpenAI response"
+            exit 1
+          fi
+          echo "Summary generated successfully: $SUMMARY"
+          # Store summary in a file
+          echo "$SUMMARY" > summary.txt
+
+      - name: Post Summary as Comment
+        run: |
+           echo "Commenting on the PR..."
+           gh pr comment ${{ github.event.pull_request.number }} --body "$(cat summary.txt)" || {
+             echo "Failed to post comment"
+             exit 1
+           }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+
