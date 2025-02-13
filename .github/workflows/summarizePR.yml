@@ -16,13 +16,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-    
-      - name: Generate AI Summary # Fixed indentation here
+      
+      - name: Generate AI Summary
         id: generate_summary
         env:
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-            OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           if [ -z "$OPENAI_API_KEY" ]; then
             echo "Error: OPENAI_API_KEY secret is not set!"
@@ -33,12 +33,11 @@ jobs:
           # Save diff to a file first, preserving the +/- format
           gh pr diff ${{ github.event.pull_request.number }} > pr_diff.txt
           
-          # Use the file contents in the API call
-          RESPONSE=$(curl -s \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $OPENAI_API_KEY" \
-            -d @- \
-            https://api.openai.com/v1/chat/completions << EOF
+          # Properly escape the diff content for JSON
+          DIFF_CONTENT=$(jq -Rs '.' < pr_diff.txt)
+          
+          # Create the JSON payload
+          JSON_PAYLOAD=$(cat << EOF
           {
             "model": "gpt-4-turbo-preview",
             "messages": [
@@ -48,13 +47,20 @@ jobs:
               },
               {
                 "role": "user",
-                "content": "$(cat pr_diff.txt)"
+                "content": ${DIFF_CONTENT}
               }
             ],
             "temperature": 0.7
           }
           EOF
           )
+          
+          # Make the API call with the properly formatted JSON
+          RESPONSE=$(curl -s \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $OPENAI_API_KEY" \
+            -d "${JSON_PAYLOAD}" \
+            https://api.openai.com/v1/chat/completions)
 
           # Check if the response contains an error
           if echo "$RESPONSE" | jq -e '.error' > /dev/null; then
@@ -73,15 +79,3 @@ jobs:
           echo "Summary generated successfully: $SUMMARY"
           # Store summary in a file
           echo "$SUMMARY" > summary.txt
-          echo "additional logging"
-
-      - name: Post Summary as Comment
-        run: |
-           echo "Commenting on the PR..."
-           gh pr comment ${{ github.event.pull_request.number }} --body "$(cat summary.txt)" || {
-             echo "Failed to post comment"
-             exit 1
-           }
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_TOKEN: ${{ github.token }}
