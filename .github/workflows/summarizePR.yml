@@ -16,51 +16,42 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Generate AI Summary
         id: generate_summary
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          API_KEY_GEMENI: ${{ secrets.API_KEY_GEMENI }}
         run: |
-          if [ -z "$OPENAI_API_KEY" ]; then
-            echo "Error: OPENAI_API_KEY secret is not set!"
+          if [ -z "$API_KEY_GEMENI" ]; then
+            echo "Error: API_KEY_GEMENI secret is not set!"
             exit 1
           fi
-          echo "Your OpenAI API key is set"
-          
+          echo "Your API_KEY_GEMENI is set, all good!"
+
           # Save diff to a file first, preserving the +/- format
           gh pr diff ${{ github.event.pull_request.number }} > pr_diff.txt
-          
+
           # Properly escape the diff content for JSON
           DIFF_CONTENT=$(jq -Rs '.' < pr_diff.txt)
-          
+
           # Create the JSON payload
           JSON_PAYLOAD=$(cat << EOF
           {
-            "model": "gpt-4o-mini",
-            "messages": [
-              {
-                "role": "system",
-                "content": "You are reviewing a GitHub PR diff. Lines starting with + are additions, - are deletions. Summarize the changes in a concise, professional manner. Explain how the proposed changes improve the project, or raise concerns if appropriate."
-              },
-              {
-                "role": "user",
-                "content": ${DIFF_CONTENT}
-              }
-            ],
-            "temperature": 0.7
+            "contents": [{
+              "parts": [{"text": "Summarize the following PR changes: ${DIFF_CONTENT}"}]
+            }]
           }
           EOF
           )
-          
-          # Make the API call with the properly formatted JSON
+
+          # Make the API call to the Google API with the properly formatted JSON
           RESPONSE=$(curl -s \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $OPENAI_API_KEY" \
-            -d "${JSON_PAYLOAD}" \
-            https://api.openai.com/v1/chat/completions)
+          -H 'Content-Type: application/json' \
+          -X POST \
+          -d "${JSON_PAYLOAD}" \
+          "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY_GEMENI}")
 
           # Check if the response contains an error
           if echo "$RESPONSE" | jq -e '.error' > /dev/null; then
