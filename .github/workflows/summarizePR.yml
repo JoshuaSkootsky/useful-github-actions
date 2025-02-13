@@ -4,6 +4,10 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
+permissions:
+  pull-requests: write
+  contents: read
+
 jobs:
   generate_summary:
     runs-on: ubuntu-latest
@@ -62,6 +66,7 @@ jobs:
           echo "Summary generated successfully: $SUMMARY"
           # Store summary in a file
           echo "$SUMMARY" > summary.txt
+          echo "additional logging"
 
       - name: Post Summary as Comment
         run: |
