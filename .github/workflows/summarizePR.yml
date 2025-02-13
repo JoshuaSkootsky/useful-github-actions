@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-
+      
       - name: Generate AI Summary
         id: generate_summary
         env:
@@ -33,40 +33,53 @@ jobs:
           # Save diff to a file first, preserving the +/- format
           gh pr diff ${{ github.event.pull_request.number }} > pr_diff.txt
 
-          # Properly escape the diff content for JSON
-          DIFF_CONTENT=$(jq -Rs '.' < pr_diff.txt)
+          # Create a properly escaped JSON payload
+          prompt="Summarize the following PR changes:"
+          DIFF_CONTENT=$(cat pr_diff.txt | jq -sR .)
+          
+          # Use jq to create a properly formatted JSON payload
+          JSON_PAYLOAD=$(jq -n \
+            --arg prompt "$prompt" \
+            --arg diff "$DIFF_CONTENT" \
+            '{
+              contents: [{
+                parts: [{
+                  text: ($prompt + " " + ($diff | fromjson))
+                }]
+              }]
+            }')
 
-          # Create the JSON payload
-          JSON_PAYLOAD=$(cat << EOF
-          {
-            "contents": [{
-              "parts": [{"text": "Summarize the following PR changes: ${DIFF_CONTENT}"}]
-            }]
-          }
-          EOF
-          )
-
-          # Make the API call to the Google API with the properly formatted JSON
+          # Make the API call to the Google API
           RESPONSE=$(curl -s \
-          -H 'Content-Type: application/json' \
-          -X POST \
-          -d "${JSON_PAYLOAD}" \
-          "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY_GEMENI}")
+            -H "Content-Type: application/json" \
+            -X POST \
+            -d "$JSON_PAYLOAD" \
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY_GEMENI}")
 
           # Check if the response contains an error
           if echo "$RESPONSE" | jq -e '.error' > /dev/null; then
-            echo "Error: OpenAI API returned an error"
-            echo "Error Code: $(echo "$RESPONSE" | jq -r '.error.code')"
-            echo "Full Response: $RESPONSE"
+            echo "Error from Gemini API:"
+            echo "$RESPONSE" | jq '.error'
             exit 1
           fi
 
-          # Extract the summary from the response
-          SUMMARY=$(echo "$RESPONSE" | jq -r '.choices[0].message.content')
+          # Extract summary from candidates (Gemini API response format)
+          SUMMARY=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text')
           if [ -z "$SUMMARY" ]; then
-            echo "Error: Failed to get summary from OpenAI response"
+            echo "Error: Failed to get summary from Gemini response"
             exit 1
           fi
           echo "Summary generated successfully: $SUMMARY"
           # Store summary in a file
           echo "$SUMMARY" > summary.txt
+
+      - name: Post Summary as Comment
+        run: |
+          echo "Commenting on the PR..."
+          gh pr comment ${{ github.event.pull_request.number }} --body "$(cat summary.txt)" || {
+            echo "Failed to post comment"
+            exit 1
+          }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
