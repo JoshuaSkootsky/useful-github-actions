@@ -22,13 +22,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          API_KEY_GEMENI: ${{ secrets.API_KEY_GEMENI }}
+          API_KEY_GEMINI: ${{ secrets.API_KEY_GEMINI }}
         run: |
-          if [ -z "$API_KEY_GEMENI" ]; then
-            echo "Error: API_KEY_GEMENI secret is not set!"
+          if [ -z "$API_KEY_GEMINI" ]; then
+            echo "Error: API_KEY_GEMINI secret is not set!"
             exit 1
           fi
-          echo "Your API_KEY_GEMENI is set, all good!"
+          echo "Your API_KEY_GEMINI is set, all good!"
 
           # Save diff to a file first, preserving the +/- format
           gh pr diff ${{ github.event.pull_request.number }} > pr_diff.txt
@@ -54,7 +54,7 @@ jobs:
             -H "Content-Type: application/json" \
             -X POST \
             -d "$JSON_PAYLOAD" \
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY_GEMENI}")
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY_GEMINI}")
 
           # Check if the response contains an error
           if echo "$RESPONSE" | jq -e '.error' > /dev/null; then
